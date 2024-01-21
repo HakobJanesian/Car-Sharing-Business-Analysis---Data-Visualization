@@ -1,0 +1,359 @@
+---
+title: "Turo Analysis"
+output:
+  pdf_document: default
+  html_document: default
+date: "2023-03-27"
+---
+```{r pressure, echo=FALSE, suppress_warnings=TRUE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(DT)
+library(mosaicData)
+library(treemapify)
+library(RColorBrewer)
+library(ggforce)
+library(forecast)
+library(treemap)
+```
+
+```{r}
+df = read.csv("turo.csv")
+head(df)
+```
+
+```{r, warning = FALSE}
+ggplot(df, aes(x=car.year)) +
+  geom_histogram(color = 'black', binwidth = 1, aes(y = ..count.. , fill= car.turo.go), position = "stack") +
+  xlim(2000, 2025) +
+  theme_minimal() +
+  ggtitle("Distribution of Turo Rental Cars by Year and Availability")
+```
+
+
+```{r}
+# Create a frequency table of car.state
+df_freqs = df %>%  count(car.state, sort = TRUE)
+
+# Reorder car.state by frequency
+df_freqs$car.state = factor(df_freqs$car.state, levels = df_freqs$car.state)
+
+ggplot(df_freqs[1:19, ], aes(x = car.state, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(x = "State", y = "Frequency", 
+       title = "Barplot: Number of Cars per State")+
+  theme_minimal()
+```
+```{r}
+treemap(df_freqs[1:19, ],
+        index = "car.state",
+        vSize = "n",
+        title = "Treemap: States by Frequency",
+        palette = "Dark2")
+```
+
+```{r}
+df_freq <- df %>% count(car.make, sort = TRUE)
+df_freq <- df_freq %>% 
+  filter(!is.na(car.make)) %>%
+  mutate(car.make = factor(car.make, levels = car.make))
+
+ggplot(df_freq[1:10, ], aes(x = car.make, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Car Make", y = "Frequency", 
+       title = "Barplot: Top 10 Car Makes by Frequency") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r, warning=FALSE}
+df_freq2 <- df %>% count(car.make, sort = TRUE)
+
+my_palette <- colorRampPalette(brewer.pal(9, "Dark2"))(50)
+
+ggplot(df_freq2[1:20, ], aes(area = n, fill = car.make, label = paste(car.make, "\n", n))) +
+  geom_treemap() +
+  geom_treemap_text(fontface = "bold", place = "centre", reflow = T, color = "white", min.size = 0.01)+
+  scale_fill_manual(values = my_palette) +
+  theme_void() +
+  labs(title = "Treemap: Top 20 Car Makes by Frequency") +
+  guides(fill = FALSE)
+```
+
+
+```{r}
+df_freq1 <- df %>% count(car.power, sort = TRUE)
+
+df_freq1 <- df_freq1 %>% 
+  filter(!is.na(car.power)) %>%
+  mutate(car.power = factor(car.power, levels = car.power))
+
+ggplot(df_freq1, aes(x = car.power, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Car Power", y = "Frequency", 
+       title = "Barplot: Car Power by Frequency") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r, warning = FALSE}
+top5_car_makes = df %>% filter(car.make %in% df_freq[1:10, ]$car.make)
+
+ggplot(top5_car_makes, aes(y=reorder(car.make,car.trip.price, na.rm=TRUE, FUN = median), x= car.trip.price))+
+geom_boxplot(outlier.shape = NA) + xlim(0, 2000) +
+theme_minimal() +
+ggtitle("Median Trip Price Distribution of Top 5 Car Makes on Turo") +
+xlab("Median Trip Price") + ylab("Car Make")
+
+```
+
+
+```{r,  warning = FALSE}
+top5_car_makes = df %>% filter(car.make %in% df_freq[1:10, ]$car.make)
+
+ggplot(top5_car_makes, aes(x=car.extra.mile.fee, y=reorder(car.make, car.extra.mile.fee, na.rm=TRUE, FUN = median))) +
+  geom_boxplot(notch = TRUE) + 
+  xlim(0, 3) +
+  labs(title = "Extra Mile Fee by Car Make", 
+       x = "Extra Mile Fee (per mile)", 
+       y = "Car Make") +
+  theme_minimal()
+
+```
+
+
+
+```{r}
+df_freq3 = df %>% count(car.state, sort = TRUE)
+
+df_freq3$car.state = factor(df_freq3$car.state, levels = df_freq3$car.state)
+top5_car_state = df_freq3[1:5,]
+
+# Filter data for the top 5 car states
+New = filter(df, car.state %in% top5_car_state$car.state)
+
+# Calculate frequency of car.makes within each state
+New1 = New %>% 
+  group_by(car.state, car.make) %>% 
+  summarise(count = n(), .groups = "drop") %>% 
+  ungroup() 
+
+# Rank car makes within each state by frequency count
+New1 = New1 %>% 
+  group_by(car.state) %>% 
+  mutate(rank = dense_rank(desc(count))) %>% 
+  filter(rank <= 3) %>% 
+  ungroup() %>% 
+  mutate(rank = as.numeric(rank))
+
+# Sort by car.state and rank
+New2 = New1[order(New1$car.state, New1$rank), ]
+as.data.frame(New2)
+
+New3 = as.data.frame(New2[!(New2$car.state == "ga" &  New2$car.make == "chevrolet"), ])
+
+ggplot(New3, aes(x = car.state, y = count, fill = car.make, order = rank)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_viridis_d(option = "magma", begin = 0.1, end = 0.9, direction = -1) +
+  labs(title = "Top Three Car Makes by State", x = "State", y = "Frequency") + theme_minimal()
+```
+
+```{r}
+mean_trips <- df %>%
+  group_by(car.model) %>%
+  summarise(model_count = n(), mean_tripprice = mean(car.trip.price, na.rm = TRUE))
+
+mean_trips
+```
+
+```{r}
+correlation <- cor(df$car.displayed.user.review.num, df$car.trip.price, use = "complete.obs")
+correlation
+```
+
+```{r}
+
+df1 = df %>%
+  filter(host.car.num != 0)
+
+average_trip_prices <- df1 %>%
+  group_by(host.car.num) %>%
+  summarise(average_trip_price = mean(car.trip.price, na.rm = TRUE))
+
+r <- cor(average_trip_prices$host.car.num, average_trip_prices$average_trip_price, use="pairwise.complete.obs")
+
+ggplot(average_trip_prices, aes(x = host.car.num, y = average_trip_price)) +
+  geom_point() +
+  labs(x = "Number of Cars Owned by Host", y = "Average Trip Price", title = "Scatterplot: Number of Cars Owned by Host vs Average Trip Price") +
+  geom_smooth(method = "lm")+
+  annotate("text", x = 85, y = 1400, label = paste0("r = ", round(r, 2)), hjust = 1.2, vjust = 1.2, size = 5, color = 'red')+
+  theme_minimal()
+```
+
+```{r}
+
+# Hypothesis: Car rental types differ in the number of airports, hotels, and train stations they can be delivered to.
+
+# Visualization: Stacked bar chart with car.rental.type as categories and the number of airports, hotels, and train stations as stacked values (based # on car.deliver.airport.num, car.deliver.hotel.num, and car.deliver.train.station.num)
+
+
+long_data <- df %>%
+  gather(key = "delivery_type", value = "count",
+         c("car.deliver.airport.num", "car.deliver.hotel.num", "car.deliver.train.station.num"))
+
+# Create the stacked bar chart
+ggplot(long_data, aes(x = car.rental.type, y = count, fill = delivery_type)) +
+  geom_bar(stat = "identity", position = 'fill') +
+  scale_fill_manual(values = c("car.deliver.airport.num" = "#2E2E2E",
+                               "car.deliver.hotel.num" = "#5C5C5C",
+                               "car.deliver.train.station.num" = "#A0522D")) +
+  labs(x = "Car Rental Type",
+       y = "Number of Delivery Locations",
+       fill = "Delivery Type",
+       title = "Car rental types and their delivery locations") +
+  theme_minimal()
+```
+```{r, warning = FALSE}
+# Hypothesis: Cars with verified photos tend to have higher trip prices.
+# Visualization: Density plot(with Q1(First quantile), Q2(median), and Q3(third quantile) lines) comparing car.trip.price for cars with verified photos (car.photo.verified = 1) and cars without verified photos (car.photo.verified = 0).
+
+# Create a new data frame with car.trip.price and car.photo.verified as factors
+plot_data <- data.frame(price = df$car.trip.price, photo_verified = as.factor(df$car.photo.verified))
+
+# Calculate Q1, Q2 (median), and Q3 for car.trip.price with and without verified photos
+quantiles <- data.frame(
+  photo_verified = c(0, 1),
+  Q1 = sapply(c(0, 1), function(x) quantile(plot_data$price[plot_data$photo_verified == x], 0.25)),
+  Q2 = sapply(c(0, 1), function(x) quantile(plot_data$price[plot_data$photo_verified == x], 0.5)),
+  Q3 = sapply(c(0, 1), function(x) quantile(plot_data$price[plot_data$photo_verified == x], 0.75))
+)
+
+# Create the density plot
+ggplot(plot_data, aes(x = price, fill = photo_verified)) +
+  geom_density(alpha = 0.5) +
+  scale_fill_manual(values = c("#FF9999", "#99CCFF"), 
+                    labels = c("Not Verified", "Verified"),
+                    name = "Photo Verified") +
+  geom_vline(data = quantiles, aes(xintercept = Q1, linetype = "Q1"), color = "black") +
+  geom_vline(data = quantiles, aes(xintercept = Q2, linetype = "Q2 (median)"), color = "black") +
+  geom_vline(data = quantiles, aes(xintercept = Q3, linetype = "Q3"), color = "black") +
+  scale_linetype_manual(values = c("dashed", "solid", "dashed"), name = "Quantiles") +
+  labs(title = "Density plot of car trip prices by photo verification status",
+       x = "Car trip price",
+       y = "Density") +
+  theme_minimal()
+```
+```{r, warning = FALSE}
+ggplot(df, aes(x=car.extra.mile.fee, y = car.trip.price)) + 
+  geom_point(alpha = 0.5, size = 1) +
+  geom_smooth(method = 'lm') + 
+  annotate("text", x = 3, y = 500, label = paste0("r = ", round(r, 2)), hjust = 1.2, vjust = 1.2, size = 5, color = 'red') +
+  labs(title = "Car Trip Prices vs Extra Mile Fees", x = "Car Extra Mile Fee", y = "Car Trip Price")+theme_minimal()
+
+```
+```{r, warning = FALSE}
+df_avg <- df %>%
+  group_by(car.extra.mile.fee) %>%
+  summarize(avg_trip_price = mean(car.trip.price))
+
+ggplot(df_avg, aes(x = car.extra.mile.fee, y = avg_trip_price)) +
+  geom_point(alpha = 0.5, size = 1) +
+  geom_smooth(method = 'lm') +
+  labs(title = "Average Trip Price vs. Mile Fee", x = "Car Extra Mile Fee", y = "Average Trip Price") +
+  annotate("text", x = 3, y = 500, 
+           label = paste0("r = ", round(cor(df_avg$avg_trip_price, df_avg$car.extra.mile.fee, use="pairwise.complete.obs"), 2)), 
+           hjust = 1.2, vjust = 1.2, size = 5, color = 'red')+ theme_minimal()
+
+```
+
+
+Extra services
+Hypothesis: Cars with more extra services available have higher trip prices.
+
+
+Let's initially understand the data by providing a visual representation of the
+distribution of extra services offered by the hosts in the dataset.
+```{r}
+extra_services_data <- df %>%
+  select(car.extra.beach.gear, car.extra.child.safety.seat, car.extra.cooler, car.extra.one.way.trip, car.extra.pet.fee, car.extra.phone.mount, car.extra.portable.gps, car.extra.post.trip.cleaning, car.extra.prepaid.ev.recharge, car.extra.prepaid.refuel, car.extra.stroller, car.extra.unlimited.mileage) %>%
+  gather(key = "extra_service", value = "count") %>%
+  group_by(extra_service) %>%
+  summarise(count = sum(count)) %>%
+  mutate(percentage = count / sum(count) * 100,
+         extra_service = gsub("car.extra.", "", extra_service))
+
+ggplot(extra_services_data, aes(area = count, fill = extra_service, label = paste0(extra_service, "\n ", round(percentage, 1), "%"))) +
+  geom_treemap() +
+  geom_treemap_text(fontface = "italic", colour = "white", place = "centre", grow = TRUE) +
+  theme_minimal() +
+  theme(legend.position = "none")+
+  labs(title = "Proportion of extra services offered by hosts")
+```
+From the plot above, we can deduce that the majority of the cars on Turo.com offer the extra service of post-trip cleaning (38.6%), making it the most prevalent extra feature. The second most prevalent extra feature is prepaid refuel (33.7%). These two services are significantly more widespread compared to other features, primarily due to a key reason. Unlike materialistic features that depend on the car's specifications or accessories, post-trip cleaning and prepaid refuel are services that any car requires and can provide, regardless of its make or model. These services are solely based on the host's preference, which allows them the flexibility to cater to the diverse needs and expectations of their clients.
+
+
+```{r, warning = FALSE}
+r <- cor(df$car.extra.num, df$car.trip.price, use="pairwise.complete.obs")
+ggplot(df, aes(x = car.extra.num, y = car.trip.price)) +
+  geom_jitter(width = 0.4, alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "red")+
+  labs(title = "Scatterplot: Trip price vs Number of extra features per car\n (Regression line added)" , x = "Number of extra features of the Cars", y = "Trip Price")+
+  annotate("text", x = 10, y = 6000, label = paste0("r = ", round(r, 2)), hjust = 1.2, vjust = 1.2, size = 5, color = 'red')+theme_minimal()
+```
+Our analysis of car rental prices by hosts indicates that there is a slight negative correlation between the number of extra features offered by hosts and the rental price of their cars. However, this relationship is not statistically significant, which means that offering more features may not necessarily increase the rental price of the car. In fact, their low correlation must be analyzed further, as there may be several contributing factors.
+
+One potential explanation for the low correlation could be that the overall coefficients of the individual extra features are quite small, making their combined impact on the rental price minimal. In other words, each extra feature's effect on the price might be too minor to create a significant correlation when considering all the features together.
+
+Another possible scenario could be that there are both large negative and positive coefficients for different extra features, which, when combined, diminish the overall correlation value. This might indicate that some features lead to a higher rental price, while others result in a lower price. A more granular analysis of the individual features' effects on the rental price would be necessary to better understand this relationship and provide actionable insights for hosts looking to optimize their offerings.
+
+```{r, warning = FALSE}
+ggplot(df, aes(x = factor(car.extra.num), y = car.trip.price)) +
+  geom_boxplot(outlier.shape = NA) + 
+  stat_summary(fun = mean, geom = "point", size = 1.7, color = "red") + 
+  labs(title = "Boxplots: Trip Price vs Number of Extra Features",
+    x = "Number of extra features of the Cars", y = "Trip Price") +
+  coord_cartesian(ylim = c(0, 2000)) + 
+  theme_minimal()
+```
+Furthermore, our boxplots show that as the number of extra features offered by hosts increases, the rental price range of the cars becomes narrower. In other words, cars with more features tend to have similar rental prices, while cars with fewer features have more variability in their rental prices. This suggests that having many features may not be as valuable as we might think, and renters may not be willing to pay significantly more for them.
+
+
+To understand deeper on how each feature effects the car rental price we have implemented a regression model and identified the coefficients of the features, which helps us to discuss their importance. The regression model 
+predicts the car rental price using the extra car features as an input variable.
+
+```{r}
+cols <- colnames(df)[c(16:18, 21:29, 44)]
+df_subset <- df[cols]
+
+# fit a linear regression model with all the boolean columns as predictors
+model <- glm(car.trip.price ~ ., data = df_subset)
+summary(model)$coefficients
+coefficients <- coef(model)[-1]
+df_coefficients <- data.frame(feature = names(coefficients),
+                              coefficient = coefficients,
+                              row.names = NULL)
+df_coefficients
+```
+With all other characteristics held constant, each coefficient in this table displays the anticipated change in the trip cost for a rental car when the relevant feature is present (TRUE) as opposed to when it is absent (FALSE). Positive coefficients show that a feature raises trip costs, whereas negative coefficients show that a feature lowers trip costs.
+
+```{r}
+ggplot(df_coefficients, aes(x = reorder(feature, coefficient), y = coefficient)) +
+  geom_bar(stat = "identity", aes(fill = coefficient > 0)) +
+  scale_fill_manual(values = c("red3", "green3")) +
+  labs(title = "Barplot: Extra Services' Coefficient Impact on Car Rental Prices",
+       x = "Predictor Variable (if True)", y = "Regression Coefficient values") +
+  scale_x_discrete(labels = function(x) gsub("TRUE", "", gsub("car.extra.", "", x))) +
+  coord_flip() +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+As we can see in the plot above, the majority of the extra features affect negatively on the trip price, and only two of them (one way trip & prepaid recharge) affect positively. Finally, it's worth noting that cars with a high number of features offered by hosts are less common, which further supports the idea that additional features may not be as desirable as we might expect. Therefore, hosts should carefully consider the value of offering extra features in their rental cars, as it may not necessarily result in higher rental prices or increased demand.
+
+Hypothesis 2 is in the IPYNB file in python. Thank You
+
+
+
+
+
+
